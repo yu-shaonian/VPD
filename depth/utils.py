@@ -334,21 +334,45 @@ def init_distributed_mode(args):
 
 def init_distributed_mode_simple(args):
 
-    args.rank = int(os.environ["RANK"])
-    args.world_size = int(os.environ['WORLD_SIZE'])
-    args.gpu = int(os.environ['LOCAL_RANK'])
-    args.dist_url = 'env://'
+    # args.rank = int(os.environ["RANK"])  # RANK表示global rank, 表示当前进程在所有进程中的序号
+    # args.world_size = int(os.environ['WORLD_SIZE'])  # WORLD_SIZE表示分布式训练的所有的进程数量
+    # args.gpu = int(os.environ['LOCAL_RANK'])  # 在当前分布式节点中进程的编号，因为一个显卡分配一个进程，因此这个编号也是当前进程运行的GPU编号
+    # args.dist_url = 'env://'
+    # args.distributed = True
+    # torch.cuda.set_device(args.gpu)
+    # args.dist_backend = 'nccl'
+    # print('| distributed init (rank {}): {}, gpu {}'.format(
+    #     args.rank, args.dist_url, args.gpu), flush=True)
+    # torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+    #                                      world_size=args.world_size, rank=args.rank)
+    # torch.distributed.barrier()
+    # setup_for_distributed(args.rank == 0)
 
-    args.distributed = True
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        args.rank = int(os.environ["RANK"])  # RANK表示global rank, 表示当前进程在所有进程中的序号
+        args.world_size = int(os.environ['WORLD_SIZE'])  # WORLD_SIZE表示分布式训练的所有的进程数量
+        args.gpu = int(os.environ['LOCAL_RANK'])  # 在当前分布式节点中进程的编号，因为一个显卡分配一个进程，因此这个编号也是当前进程运行的GPU编号
+        args.dist_url = 'env://'
+        args.distributed = True
+        torch.cuda.set_device(args.gpu)
+        args.dist_backend = 'nccl'
+        print('| distributed init (rank {}): {}, gpu {}'.format(
+            args.rank, args.dist_url, args.gpu), flush=True)
+        torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+                                             world_size=args.world_size, rank=args.rank)
+        torch.distributed.barrier()
+        setup_for_distributed(args.rank == 0)
 
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    print('| distributed init (rank {}): {}, gpu {}'.format(
-        args.rank, args.dist_url, args.gpu), flush=True)
-    torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                         world_size=args.world_size, rank=args.rank)
-    torch.distributed.barrier()
-    setup_for_distributed(args.rank == 0)
+    elif 'SLURM_PROCID' in os.environ:  # 在SLURM集群上使用
+        args.rank = int(os.environ['SLURM_PROCID'])
+        args.gpu = args.rank % torch.cuda.device_count()
+    else:
+        print('Not using distributed mode')
+        args.distributed = False
+        args.gpu = int(os.environ['CUDA_VISIBLE_DEVICES'])
+
+
+
 
 def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_position_index"):
     missing_keys = []

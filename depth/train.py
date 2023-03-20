@@ -4,6 +4,10 @@
 # -----------------------------------------------------------------------------
 
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+import sys
+sys.path.append('/home/leiguojun/research/VPD/stable-diffusion')
+sys.path.append('/home/leiguojun/research/VPD')
 import cv2
 import numpy as np
 from datetime import datetime
@@ -56,7 +60,8 @@ def main():
 
     utils.init_distributed_mode_simple(args)
     print(args)
-    device = torch.device(args.gpu)
+    # device = torch.device(args.gpu)
+    device = torch.device('cuda')
 
     pretrain = args.pretrained.split('.')[0]
     maxlrstr = str(args.max_lr).replace('.', '')
@@ -75,18 +80,18 @@ def main():
     print('This experiments: ', exp_name)
 
     # Logging
-    if args.rank == 0:
-        exp_name = '%s_%s' % (datetime.now().strftime('%m%d'), exp_name)
-        log_dir = os.path.join(args.log_dir, exp_name)
-        logging.check_and_make_dirs(log_dir)
-        writer = SummaryWriter(logdir=log_dir)
-        log_txt = os.path.join(log_dir, 'logs.txt')  
-        logging.log_args_to_txt(log_txt, args)
+    # if args.rank == 0:
+    exp_name = '%s_%s' % (datetime.now().strftime('%m%d'), exp_name)
+    log_dir = os.path.join(args.log_dir, exp_name)
+    logging.check_and_make_dirs(log_dir)
+    writer = SummaryWriter(logdir=log_dir)
+    log_txt = os.path.join(log_dir, 'logs.txt')
+    logging.log_args_to_txt(log_txt, args)
 
-        global result_dir
-        result_dir = os.path.join(log_dir, 'results')
-        if not os.path.exists(result_dir):
-            os.makedirs(result_dir)
+    global result_dir
+    result_dir = os.path.join(log_dir, 'results')
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
     else:
         log_txt = None
         log_dir = None
@@ -98,8 +103,10 @@ def main():
     cudnn.benchmark = True
     model.to(device)
     model_without_ddp = model
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
-
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
+    else:
+        model = torch.nn.DataParallel(model)
 
     # Dataset setting
     dataset_kwargs = {'dataset_name': args.dataset, 'data_path': args.data_path}
@@ -108,18 +115,25 @@ def main():
     train_dataset = get_dataset(**dataset_kwargs)
     val_dataset = get_dataset(**dataset_kwargs, is_train=False)
 
-    sampler_train = torch.utils.data.DistributedSampler(
-        train_dataset, num_replicas=utils.get_world_size(), rank=args.rank, shuffle=True, 
-    )
 
-    sampler_val = torch.utils.data.DistributedSampler(
-            val_dataset, num_replicas=utils.get_world_size(), rank=args.rank, shuffle=False)
+    if args.distributed:
+        sampler_train = torch.utils.data.DistributedSampler(
+            train_dataset, num_replicas=utils.get_world_size(), rank=args.rank, shuffle=True,
+        )
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                               sampler=sampler_train, num_workers=args.workers, 
-                                               pin_memory=True, drop_last=True)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, sampler=sampler_val,
-                                             pin_memory=True)
+        sampler_val = torch.utils.data.DistributedSampler(
+                val_dataset, num_replicas=utils.get_world_size(), rank=args.rank, shuffle=False)
+
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                   sampler=sampler_train, num_workers=args.workers,
+                                                   pin_memory=True, drop_last=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, sampler=sampler_val,
+                                                 pin_memory=True)
+    else:
+        train_loader = torch.utils.data.DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, drop_last=True,
+                                    pin_memory=True)
+        val_loader = torch.utils.data.DataLoader(val_dataset, args.batch_size, shuffle=False, num_workers=args.workers, drop_last=False,
+                                   pin_memory=True)
 
     # Training settings
     criterion_d = SiLogLoss()
@@ -201,8 +215,8 @@ def main():
 def train(train_loader, model, criterion_d, log_txt, optimizer, device, epoch, args):    
     global global_step
     model.train()
-    if args.rank == 0:
-        depth_loss = logging.AverageMeter()
+    # if args.rank == 0:
+    depth_loss = logging.AverageMeter()
     half_epoch = args.epochs // 2
     iterations = len(train_loader)
     result_lines = []
@@ -227,31 +241,31 @@ def train(train_loader, model, criterion_d, log_txt, optimizer, device, epoch, a
         optimizer.zero_grad()
         loss_d = criterion_d(preds['pred_d'].squeeze(), depth_gt)
 
-        if args.rank == 0:
-            depth_loss.update(loss_d.item(), input_RGB.size(0))
+        # if args.rank == 0:
+        depth_loss.update(loss_d.item(), input_RGB.size(0))
         loss_d.backward()
         
-        if args.rank == 0:
-            if args.pro_bar:
-                logging.progress_bar(batch_idx, len(train_loader), args.epochs, epoch,
-                                    ('Depth Loss: %.4f (%.4f)' %
-                                    (depth_loss.val, depth_loss.avg)))
+        # if args.rank == 0:
+        if args.pro_bar:
+            logging.progress_bar(batch_idx, len(train_loader), args.epochs, epoch,
+                                ('Depth Loss: %.4f (%.4f)' %
+                                (depth_loss.val, depth_loss.avg)))
 
-            if batch_idx % args.print_freq == 0:
-                result_line = 'Epoch: [{0}][{1}/{2}]\t' \
-                    'Loss: {loss}, LR: {lr}\n'.format(
-                        epoch, batch_idx, iterations,
-                        loss=depth_loss.avg, lr=current_lr
-                    )
-                result_lines.append(result_line)
-                print(result_line)
+        if batch_idx % args.print_freq == 0:
+            result_line = 'Epoch: [{0}][{1}/{2}]\t' \
+                'Loss: {loss}, LR: {lr}\n'.format(
+                    epoch, batch_idx, iterations,
+                    loss=depth_loss.avg, lr=current_lr
+                )
+            result_lines.append(result_line)
+            print(result_line)
         optimizer.step()
     
-    if args.rank == 0:
-        with open(log_txt, 'a') as txtfile:
-            txtfile.write('\nEpoch: %03d - %03d' % (epoch, args.epochs))
-            for result_line in result_lines:
-                txtfile.write(result_line)   
+    # if args.rank == 0:
+    with open(log_txt, 'a') as txtfile:
+        txtfile.write('\nEpoch: %03d - %03d' % (epoch, args.epochs))
+        for result_line in result_lines:
+            txtfile.write(result_line)
 
     return loss_d
 

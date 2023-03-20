@@ -24,15 +24,15 @@ class TrainOptions(BaseOptions):
         parser = BaseOptions.initialize(self)
 
         # experiment configs
-        parser.add_argument('--epochs',      type=int,   default=25)
-        parser.add_argument('--max_lr',          type=float, default=5e-4)
-        parser.add_argument('--min_lr',          type=float, default=3e-5)
-        parser.add_argument('--weight_decay',          type=float, default=5e-2)
-        parser.add_argument('--layer_decay',          type=float, default=0.9)
+        parser.add_argument('--epochs', type=int, default=25)
+        parser.add_argument('--max_lr', type=float, default=5e-4)
+        parser.add_argument('--min_lr', type=float, default=3e-5)
+        parser.add_argument('--weight_decay', type=float, default=0.1)
+        parser.add_argument('--layer_decay', type=float, default=0.9)
         
-        parser.add_argument('--crop_h',  type=int, default=448)
-        parser.add_argument('--crop_w',  type=int, default=576)        
-        parser.add_argument('--log_dir', type=str, default='./logs')
+        parser.add_argument('--crop_h', type=int, default=480)
+        parser.add_argument('--crop_w', type=int, default=480)
+        parser.add_argument('--log_dir', type=str, default='./test.log')
 
         # logging options
         parser.add_argument('--val_freq', type=int, default=1)
@@ -45,6 +45,4 @@ class TrainOptions(BaseOptions):
         parser.add_argument('--auto_resume', action='store_true')   
         parser.add_argument('--save_result', action='store_true')
 
-        
-        
         return parser
