@@ -32,7 +32,7 @@ class TrainOptions(BaseOptions):
         
         parser.add_argument('--crop_h', type=int, default=480)
         parser.add_argument('--crop_w', type=int, default=480)
-        parser.add_argument('--log_dir', type=str, default='./test.log')
+        parser.add_argument('--log_dir', type=str, default='./train.log')
 
         # logging options
         parser.add_argument('--val_freq', type=int, default=1)

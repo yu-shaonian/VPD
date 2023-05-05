@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import sys
 sys.path.append('/home/leiguojun/research/VPD/stable-diffusion')
 sys.path.append('/home/leiguojun/research/VPD')
@@ -232,12 +232,17 @@ def train(train_loader, model, criterion_d, log_txt, optimizer, device, epoch, a
 
         for param_group in optimizer.param_groups:
             param_group['lr'] = current_lr*param_group['lr_scale']
-
+        import time
+        start = time.time()
         input_RGB = batch['image'].to(device)
         depth_gt = batch['depth'].to(device)
 
-        preds = model(input_RGB, class_ids=batch['class_id'])
+        input_RGB_test = torch.rand(1,3,500,500).to(device)
+        # preds = model(input_RGB_test, class_ids=batch['class_id'])
 
+
+        preds = model(input_RGB, class_ids=batch['class_id'])
+        print("耗时为:",time.time() - start)
         optimizer.zero_grad()
         loss_d = criterion_d(preds['pred_d'].squeeze(), depth_gt)
 
